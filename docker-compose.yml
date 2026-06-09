@@ -1,0 +1,100 @@
+name: vue3-chat
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    runtime: nvidia
+    env_file: .env
+    environment:
+      HF_DATASETS_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_USAGE_STATS_ENABLED: "0"
+    volumes:
+      - ${MODEL_PATH:-./models}:/models
+    command: >
+      --model /models/${MODEL_NAME}
+      --served-model-name ${MODEL_NAME}
+      --host 0.0.0.0
+      --port 8000
+      --dtype auto
+      --gpu-memory-utilization 0.80
+      --enable-auto-tool-choice
+      --tool-call-parser hermes
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles: [ llm ]
+
+  db:
+    image: postgres:16-alpine
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-chat}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles: [ base ]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-chat}
+      OPENAI_BASE_URL: http://vllm:8000/v1
+      OPENAI_API_KEY: not-needed
+      MODEL_NAME: ${MODEL_NAME:-gemma-4-E4B-it}
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: [ base ]
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      VITE_API_BASE: /api
+    develop:
+      watch:
+        - action: sync
+          path: ./ui
+          target: /app
+          ignore:
+            - node_modules/
+        - action: rebuild
+          path: ./ui/package.json
+    profiles: [ base ]
+
+  caddy:
+    image: caddy:alpine
+    env_file: .env
+    ports:
+      - "80:80"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - backend
+      - ui
+    profiles: [ base ]
+
+volumes:
+  pgdata:
