@@ -7,15 +7,15 @@ Endpoints
   GET    /api/conversations/{id}/messages            full history
   DELETE /api/conversations/{id}                      delete
   PATCH  /api/conversations/{id}                      rename
-  POST   /api/conversations/{id}/messages            send + stream (SSE)
-  POST   /api/conversations/{id}/regenerate          re-stream last turn (SSE)
+  POST   /api/conversations/{id}/messages            send message (kicks off background generation)
+  POST   /api/conversations/{id}/regenerate          re-generate last turn (background)
   POST   /api/conversations/{id}/cancel              interrupt active generation
+  WS     /api/ws                                     streaming events for all conversations
 """
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from . import db
@@ -24,9 +24,15 @@ from .agent import stream_agent, generate_title, generate_suggestions
 router = APIRouter(prefix="/api")
 
 # conversation_id -> cancel event for the currently running generation.
-# NOTE: in-process only. For multi-worker deployments, back this with Redis
-# pub/sub (or rely on client disconnect, which is also handled below).
 ACTIVE: dict[str, asyncio.Event] = {}
+
+# Queue for the single connected WebSocket client.
+_ws_queue: asyncio.Queue | None = None
+
+
+async def _ws_publish(event: dict) -> None:
+    if _ws_queue is not None:
+        await _ws_queue.put(event)
 
 
 class CreateConversation(BaseModel):
@@ -39,10 +45,6 @@ class SendMessage(BaseModel):
 
 class RenameConversation(BaseModel):
     title: str
-
-
-def _sse(event: dict) -> str:
-    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 # ---------- conversation CRUD ----------
@@ -92,83 +94,105 @@ async def cancel(conv_id: str):
     return {"ok": True, "cancelled": ev is not None}
 
 
-# ---------- generation (shared by send + regenerate) ----------
+# ---------- WebSocket ----------
 
-async def _generate_stream(conv_id: str, request: Request) -> StreamingResponse:
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    global _ws_queue
+    await websocket.accept()
+    _ws_queue = asyncio.Queue()
+
+    async def _sender():
+        while True:
+            event = await _ws_queue.get()
+            if event is None:
+                break
+            try:
+                await websocket.send_json(event)
+            except Exception:
+                break
+
+    sender_task = asyncio.create_task(_sender())
+    try:
+        while True:
+            try:
+                data = await websocket.receive_text()
+                msg = json.loads(data)
+                if msg.get("type") == "cancel":
+                    ev = ACTIVE.get(msg.get("conv_id"))
+                    if ev:
+                        ev.set()
+            except WebSocketDisconnect:
+                break
+    finally:
+        _ws_queue.put_nowait(None)
+        _ws_queue = None
+        await sender_task
+        # Cancel any in-progress generations when the client disconnects.
+        for ev in list(ACTIVE.values()):
+            ev.set()
+
+
+# ---------- generation ----------
+
+async def _generate_background(conv_id: str) -> None:
     history = await db.get_lc_history(conv_id)
-
     cancel_event = asyncio.Event()
     ACTIVE[conv_id] = cancel_event
 
-    async def event_stream():
-        parts: list[str] = []
-        thinking_parts: list[str] = []
-        tool_steps: list[dict] = []
-        interrupted = False
-        try:
-            async for ev in stream_agent(history, cancel_event):
-                # client closed the tab / aborted fetch -> stop
-                if await request.is_disconnected():
-                    cancel_event.set()
+    parts: list[str] = []
+    thinking_parts: list[str] = []
+    tool_steps: list[dict] = []
+    interrupted = False
 
-                if ev["type"] == "token":
-                    parts.append(ev["content"])
-                elif ev["type"] == "thinking_token":
-                    thinking_parts.append(ev["content"])
-                elif ev["type"] == "tool_call":
-                    tool_steps.append({"id": ev["id"], "name": ev["name"],
-                                       "args": ev["args"], "result": None})
-                elif ev["type"] == "tool_result":
-                    for st in tool_steps:
-                        if st["id"] == ev["id"]:
-                            st["result"] = ev["content"]
-                elif ev["type"] == "interrupted":
-                    interrupted = True
-
-                yield _sse(ev)
-        except asyncio.CancelledError:
-            interrupted = True
-            raise
-        finally:
-            text = "".join(parts)
-            thinking = "".join(thinking_parts)
-            # persist whatever we produced (including partial text on interrupt)
-            if text.strip() or tool_steps:
-                saved = await db.add_message(
-                    conv_id, "assistant", text,
-                    extra={"tools": tool_steps, "interrupted": interrupted, "thinking": thinking},
-                )
-                yield _sse({"type": "saved", "message_id": saved["id"],
-                            "interrupted": interrupted})
-                title = await generate_title(await db.get_lc_history(conv_id))
-                await db.rename_conversation(conv_id, title)
-                yield _sse({"type": "title", "title": title})
-            ACTIVE.pop(conv_id, None)
-            yield _sse({"type": "end"})
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # disable nginx buffering
-        },
-    )
+    try:
+        async for ev in stream_agent(history, cancel_event):
+            if ev["type"] == "token":
+                parts.append(ev["content"])
+            elif ev["type"] == "thinking_token":
+                thinking_parts.append(ev["content"])
+            elif ev["type"] == "tool_call":
+                tool_steps.append({"id": ev["id"], "name": ev["name"],
+                                   "args": ev["args"], "result": None})
+            elif ev["type"] == "tool_result":
+                for st in tool_steps:
+                    if st["id"] == ev["id"]:
+                        st["result"] = ev["content"]
+            elif ev["type"] == "interrupted":
+                interrupted = True
+            await _ws_publish({**ev, "conv_id": conv_id})
+    except asyncio.CancelledError:
+        interrupted = True
+    finally:
+        text = "".join(parts)
+        thinking = "".join(thinking_parts)
+        if text.strip() or tool_steps:
+            saved = await db.add_message(
+                conv_id, "assistant", text,
+                extra={"tools": tool_steps, "interrupted": interrupted, "thinking": thinking},
+            )
+            await _ws_publish({"type": "saved", "conv_id": conv_id,
+                                "message_id": saved["id"], "interrupted": interrupted})
+            title = await generate_title(await db.get_lc_history(conv_id))
+            await db.rename_conversation(conv_id, title)
+            await _ws_publish({"type": "title", "conv_id": conv_id, "title": title})
+        ACTIVE.pop(conv_id, None)
+        await _ws_publish({"type": "end", "conv_id": conv_id})
 
 
 @router.post("/conversations/{conv_id}/messages")
-async def send_message(conv_id: str, body: SendMessage, request: Request):
+async def send_message(conv_id: str, body: SendMessage):
     if not await db.conversation_exists(conv_id):
         raise HTTPException(404, "conversation not found")
     await db.add_message(conv_id, "user", body.content)
-    return await _generate_stream(conv_id, request)
+    asyncio.create_task(_generate_background(conv_id))
+    return {"ok": True}
 
 
 @router.post("/conversations/{conv_id}/regenerate")
-async def regenerate(conv_id: str, request: Request):
+async def regenerate(conv_id: str):
     if not await db.conversation_exists(conv_id):
         raise HTTPException(404, "conversation not found")
-    # drop the previous assistant answer(s); history now ends on the user turn
     await db.delete_trailing_assistant(conv_id)
-    return await _generate_stream(conv_id, request)
+    asyncio.create_task(_generate_background(conv_id))
+    return {"ok": True}

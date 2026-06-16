@@ -4,24 +4,24 @@ SQLAlchemy 2.0 async models + small CRUD helpers.
 Each helper manages its own short-lived session. This matters for streaming:
 we never hold a DB session open across the (potentially long) generation.
 """
+
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, ForeignKey, DateTime, func, select, delete
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+)
+from sqlalchemy import DateTime, ForeignKey, String, Text, delete, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import (
-    create_async_engine,
-    async_sessionmaker,
     AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-from langchain_core.messages import (
-    BaseMessage,
-    SystemMessage,
-    HumanMessage,
-    AIMessage,
-)
 
 from .config import settings
 
@@ -66,11 +66,7 @@ class Message(Base):
     )
 
 
-SYSTEM_PROMPT = (
-    "You are a helpful assistant. When the user asks how many times a letter "
-    "(especially the letter 'r') appears in a word or string, you MUST call the "
-    "count_rs tool to get the exact count instead of guessing."
-)
+SYSTEM_PROMPT = "You are a helpful assistant. Only use your tools when necessary."
 
 
 async def init_db() -> None:
@@ -79,6 +75,7 @@ async def init_db() -> None:
 
 
 # ---------- serialization helpers ----------
+
 
 def _conv_dict(c: Conversation) -> dict:
     return {
@@ -101,6 +98,7 @@ def _msg_dict(m: Message) -> dict:
 
 # ---------- CRUD ----------
 
+
 async def create_conversation(title: str = "New chat") -> dict:
     async with SessionLocal() as s:
         c = Conversation(title=title)
@@ -113,8 +111,14 @@ async def create_conversation(title: str = "New chat") -> dict:
 async def list_conversations() -> list[dict]:
     async with SessionLocal() as s:
         rows = (
-            await s.execute(select(Conversation).order_by(Conversation.updated_at.desc()))
-        ).scalars().all()
+            (
+                await s.execute(
+                    select(Conversation).order_by(Conversation.updated_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
         return [_conv_dict(c) for c in rows]
 
 
@@ -142,18 +146,26 @@ async def rename_conversation(conv_id: str, title: str) -> None:
 async def get_messages(conv_id: str) -> list[dict]:
     async with SessionLocal() as s:
         rows = (
-            await s.execute(
-                select(Message)
-                .where(Message.conversation_id == conv_id)
-                .order_by(Message.created_at.asc(), Message.id.asc())
+            (
+                await s.execute(
+                    select(Message)
+                    .where(Message.conversation_id == conv_id)
+                    .order_by(Message.created_at.asc(), Message.id.asc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return [_msg_dict(m) for m in rows]
 
 
-async def add_message(conv_id: str, role: str, content: str, extra: dict | None = None) -> dict:
+async def add_message(
+    conv_id: str, role: str, content: str, extra: dict | None = None
+) -> dict:
     async with SessionLocal() as s:
-        m = Message(conversation_id=conv_id, role=role, content=content, extra=extra or {})
+        m = Message(
+            conversation_id=conv_id, role=role, content=content, extra=extra or {}
+        )
         s.add(m)
         # bump conversation order
         c = await s.get(Conversation, conv_id)
@@ -171,12 +183,16 @@ async def delete_trailing_assistant(conv_id: str) -> int:
     """Remove the most recent run of assistant messages at the tail (used by regenerate)."""
     async with SessionLocal() as s:
         rows = (
-            await s.execute(
-                select(Message)
-                .where(Message.conversation_id == conv_id)
-                .order_by(Message.created_at.desc(), Message.id.desc())
+            (
+                await s.execute(
+                    select(Message)
+                    .where(Message.conversation_id == conv_id)
+                    .order_by(Message.created_at.desc(), Message.id.desc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         to_delete = []
         for m in rows:
             if m.role == "assistant":
