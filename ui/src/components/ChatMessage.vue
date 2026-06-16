@@ -1,22 +1,26 @@
-<script setup>
+<script setup lang="ts">
 import { computed, ref } from "vue";
 import { renderMarkdown } from "../utils/markdown";
+import type { Message } from "../types";
 
-const props = defineProps({
-  message: { type: Object, required: true },
-  canRegenerate: { type: Boolean, default: false },
-});
-defineEmits(["regenerate"]);
+const props = defineProps<{
+  message: Message;
+  canRegenerate?: boolean;
+}>();
+
+const emit = defineEmits<{
+  regenerate: [];
+}>();
 
 const renderedContent = computed(() => renderMarkdown(props.message.content));
 
 const copied = ref(false);
-async function copyContent() {
+
+const copyContent = async () => {
   await navigator.clipboard.writeText(props.message.content);
   copied.value = true;
   setTimeout(() => (copied.value = false), 1500);
-}
-
+};
 </script>
 
 <template>
@@ -72,7 +76,7 @@ async function copyContent() {
         <button class="btn btn-ghost btn-xs opacity-60 hover:opacity-100" @click="copyContent">
           {{ copied ? "✓ Copied" : "⎘ Copy" }}
         </button>
-        <button v-if="canRegenerate" class="btn btn-ghost btn-xs opacity-60 hover:opacity-100" @click="$emit('regenerate')">
+        <button v-if="canRegenerate" class="btn btn-ghost btn-xs opacity-60 hover:opacity-100" @click="emit('regenerate')">
           ↻ Regenerate
         </button>
       </div>

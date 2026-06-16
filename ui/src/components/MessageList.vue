@@ -1,20 +1,23 @@
-<script setup>
+<script setup lang="ts">
 import { ref, watch, nextTick } from "vue";
 import ChatMessage from "./ChatMessage.vue";
+import type { Message } from "../types";
 
-const props = defineProps({
-  messages: { type: Array, required: true },
-  canRegenerate: { type: Boolean, default: false },
-});
-defineEmits(["regenerate"]);
+const props = defineProps<{
+  messages: Message[];
+  canRegenerate?: boolean;
+}>();
 
-const scroller = ref(null);
+defineEmits<{
+  regenerate: [];
+}>();
 
-async function toBottom() {
+const scroller = ref<HTMLElement | null>(null);
+
+const toBottom = async () => {
   await nextTick();
-  const el = scroller.value;
-  if (el) el.scrollTop = el.scrollHeight;
-}
+  if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight;
+};
 
 watch(() => props.messages, toBottom, { deep: true });
 </script>

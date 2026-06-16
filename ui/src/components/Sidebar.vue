@@ -1,12 +1,12 @@
-<script setup>
+<script setup lang="ts">
 import { useChat } from "../composables/useChat";
 
 const { conversations, currentId, newConversation, openConversation, removeConversation } = useChat();
 
-function onDelete(e, id) {
+const onDelete = (e: MouseEvent, id: string) => {
   e.stopPropagation();
   if (confirm("Delete this conversation?")) removeConversation(id);
-}
+};
 </script>
 
 <template>

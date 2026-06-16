@@ -1,5 +1,5 @@
-<script setup>
-import { onMounted, computed } from "vue";
+<script setup lang="ts">
+import { computed, onMounted } from "vue";
 import { useChat } from "../composables/useChat";
 import Sidebar from "./Sidebar.vue";
 import MessageList from "./MessageList.vue";

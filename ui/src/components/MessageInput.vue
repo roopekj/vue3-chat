@@ -1,27 +1,31 @@
-<script setup>
+<script setup lang="ts">
 import { ref } from "vue";
 
-const props = defineProps({
-  isStreaming: { type: Boolean, default: false },
-});
-const emit = defineEmits(["send", "stop"]);
+const props = defineProps<{
+  isStreaming?: boolean;
+}>();
+
+const emit = defineEmits<{
+  send: [text: string];
+  stop: [];
+}>();
 
 const text = ref("");
 
-function submit() {
+const submit = () => {
   if (props.isStreaming) return;
   const v = text.value.trim();
   if (!v) return;
   emit("send", v);
   text.value = "";
-}
+};
 
-function onKeydown(e) {
+const onKeydown = (e: KeyboardEvent) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     submit();
   }
-}
+};
 </script>
 
 <template>
