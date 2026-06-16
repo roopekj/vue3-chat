@@ -1,4 +1,4 @@
-import { ref, reactive, computed } from "vue";
+import { ref, computed } from "vue";
 import * as api from "@/api/chat";
 import type { Conversation, Message, WsEvent } from "@/types";
 
@@ -12,13 +12,13 @@ interface ConvState {
 const conversations = ref<Conversation[]>([]);
 const currentId = ref<string | null>(null);
 const suggestions = ref<string[]>([]);
-const convState = reactive<Record<string, ConvState>>({});
+const convState = ref<Record<string, ConvState>>({});
 
 const ensureState = (id: string): ConvState => {
-  if (!convState[id]) {
-    convState[id] = { messages: [], isStreaming: false, loaded: false, liveAssistant: null };
+  if (!convState.value[id]) {
+    convState.value[id] = { messages: [], isStreaming: false, loaded: false, liveAssistant: null };
   }
-  return convState[id];
+  return convState.value[id];
 };
 
 export const currentConversation = computed(() =>
@@ -26,11 +26,11 @@ export const currentConversation = computed(() =>
 );
 
 export const messages = computed<Message[]>(() =>
-  currentId.value ? (convState[currentId.value]?.messages ?? []) : []
+  currentId.value ? (convState.value[currentId.value]?.messages ?? []) : []
 );
 
 export const isStreaming = computed(() =>
-  currentId.value ? (convState[currentId.value]?.isStreaming ?? false) : false
+  currentId.value ? (convState.value[currentId.value]?.isStreaming ?? false) : false
 );
 
 // ---- WebSocket ----
@@ -128,14 +128,18 @@ export const newConversation = async () => {
 };
 
 export const removeConversation = async (id: string) => {
-  if (convState[id]?.isStreaming) {
+  if (convState.value[id]?.isStreaming) {
     ws?.send(JSON.stringify({ type: "cancel", conv_id: id }));
   }
   await api.deleteConversation(id);
   conversations.value = conversations.value.filter((c) => c.id !== id);
-  delete convState[id];
+  delete convState.value[id];
   if (currentId.value === id) currentId.value = null;
 };
+
+const newAssistantMessage = (): Message => ({
+  role: "assistant", content: "", tools: [], thinking: "", interrupted: false, pending: true,
+});
 
 export const send = async (text: string) => {
   const content = text.trim();
@@ -148,9 +152,8 @@ export const send = async (text: string) => {
 
   suggestions.value = [];
   state.messages.push({ role: "user", content, tools: [], thinking: "", interrupted: false, pending: false });
-  const assistant = reactive<Message>({ role: "assistant", content: "", tools: [], thinking: "", interrupted: false, pending: true });
-  state.messages.push(assistant);
-  state.liveAssistant = assistant;
+  state.messages.push(newAssistantMessage());
+  state.liveAssistant = state.messages.at(-1)!;
   state.isStreaming = true;
   state.loaded = true;
 
@@ -167,9 +170,8 @@ export const regenerate = async () => {
   while (state.messages.at(-1)?.role === "assistant") state.messages.pop();
   if (!state.messages.length) return;
 
-  const assistant = reactive<Message>({ role: "assistant", content: "", tools: [], thinking: "", interrupted: false, pending: true });
-  state.messages.push(assistant);
-  state.liveAssistant = assistant;
+  state.messages.push(newAssistantMessage());
+  state.liveAssistant = state.messages.at(-1)!;
   state.isStreaming = true;
 
   await api.regenerateMessage(id);
