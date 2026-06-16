@@ -8,12 +8,6 @@ we never hold a DB session open across the (potentially long) generation.
 import uuid
 from datetime import datetime
 
-from langchain_core.messages import (
-    AIMessage,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-)
 from sqlalchemy import DateTime, ForeignKey, String, Text, delete, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import (
@@ -206,13 +200,12 @@ async def delete_trailing_assistant(conv_id: str) -> int:
         return len(to_delete)
 
 
-async def get_lc_history(conv_id: str) -> list[BaseMessage]:
-    """Build the LangChain message list (system + turns) from stored rows."""
+async def get_lc_history(conv_id: str) -> list[dict]:
     rows = await get_messages(conv_id)
-    msgs: list[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
+    msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in rows:
         if m["role"] == "user":
-            msgs.append(HumanMessage(content=m["content"]))
+            msgs.append({"role": "user", "content": m["content"]})
         elif m["role"] == "assistant" and m["content"].strip():
-            msgs.append(AIMessage(content=m["content"]))
+            msgs.append({"role": "assistant", "content": m["content"]})
     return msgs
