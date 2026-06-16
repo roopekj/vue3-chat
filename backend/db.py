@@ -66,7 +66,8 @@ class Message(Base):
     )
 
 
-SYSTEM_PROMPT = "You are a helpful assistant. Only use your tools when necessary."
+SYSTEM_PROMPT = """<|think|>
+You are a helpful assistant. Only use your tools when necessary."""
 
 
 async def init_db() -> None:
