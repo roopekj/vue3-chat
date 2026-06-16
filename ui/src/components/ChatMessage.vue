@@ -1,28 +1,3 @@
-<script setup lang="ts">
-import { computed, ref } from "vue";
-import { renderMarkdown } from "../utils/markdown";
-import type { Message } from "../types";
-
-const props = defineProps<{
-  message: Message;
-  canRegenerate?: boolean;
-}>();
-
-const emit = defineEmits<{
-  regenerate: [];
-}>();
-
-const renderedContent = computed(() => renderMarkdown(props.message.content));
-
-const copied = ref(false);
-
-const copyContent = async () => {
-  await navigator.clipboard.writeText(props.message.content);
-  copied.value = true;
-  setTimeout(() => (copied.value = false), 1500);
-};
-</script>
-
 <template>
   <div
     class="chat"
@@ -83,3 +58,28 @@ const copyContent = async () => {
     </div>
   </div>
 </template>
+
+<script setup lang="ts">
+import { computed, ref } from "vue";
+import { renderMarkdown } from "@/utils/markdown";
+import type { Message } from "@/types";
+
+const props = defineProps<{
+  message: Message;
+  canRegenerate?: boolean;
+}>();
+
+const emit = defineEmits<{
+  regenerate: [];
+}>();
+
+const renderedContent = computed(() => renderMarkdown(props.message.content));
+
+const copied = ref(false);
+
+const copyContent = async () => {
+  await navigator.clipboard.writeText(props.message.content);
+  copied.value = true;
+  setTimeout(() => (copied.value = false), 1500);
+};
+</script>

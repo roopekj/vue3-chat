@@ -1,6 +1,6 @@
 import { ref, reactive, computed } from "vue";
-import * as api from "../api/chat";
-import type { Conversation, Message, WsEvent } from "../types";
+import * as api from "@/api/chat";
+import type { Conversation, Message, WsEvent } from "@/types";
 
 interface ConvState {
   messages: Message[];

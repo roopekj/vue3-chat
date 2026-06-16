@@ -1,14 +1,3 @@
-<script setup lang="ts">
-import { useChat } from "../composables/useChat";
-
-const { conversations, currentId, newConversation, openConversation, removeConversation } = useChat();
-
-const onDelete = (e: MouseEvent, id: string) => {
-  e.stopPropagation();
-  if (confirm("Delete this conversation?")) removeConversation(id);
-};
-</script>
-
 <template>
   <aside class="flex flex-col w-64 shrink-0 bg-base-200 border-r border-base-300 p-3 gap-3">
     <button class="btn btn-neutral btn-sm w-full" @click="newConversation">+ New chat</button>
@@ -31,3 +20,14 @@ const onDelete = (e: MouseEvent, id: string) => {
     </nav>
   </aside>
 </template>
+
+<script setup lang="ts">
+import { useChat } from "@/composables/useChat";
+
+const { conversations, currentId, newConversation, openConversation, removeConversation } = useChat();
+
+const onDelete = (e: MouseEvent, id: string) => {
+  e.stopPropagation();
+  if (confirm("Delete this conversation?")) removeConversation(id);
+};
+</script>

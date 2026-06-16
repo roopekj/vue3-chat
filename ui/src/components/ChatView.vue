@@ -1,28 +1,3 @@
-<script setup lang="ts">
-import { computed, onMounted } from "vue";
-import { useChat } from "../composables/useChat";
-import Sidebar from "./Sidebar.vue";
-import MessageList from "./MessageList.vue";
-import MessageInput from "./MessageInput.vue";
-
-const {
-  messages,
-  isStreaming,
-  suggestions,
-  currentConversation,
-  loadConversations,
-  send,
-  regenerate,
-  stop,
-} = useChat();
-
-const canRegenerate = computed(
-  () => messages.value.some((m) => m.role === "assistant") && !isStreaming.value
-);
-
-onMounted(loadConversations);
-</script>
-
 <template>
   <div class="flex h-screen overflow-hidden">
     <Sidebar />
@@ -51,3 +26,28 @@ onMounted(loadConversations);
     </main>
   </div>
 </template>
+
+<script setup lang="ts">
+import { computed, onMounted } from "vue";
+import { useChat } from "@/composables/useChat";
+import Sidebar from "@/components/Sidebar.vue";
+import MessageList from "@/components/MessageList.vue";
+import MessageInput from "@/components/MessageInput.vue";
+
+const {
+  messages,
+  isStreaming,
+  suggestions,
+  currentConversation,
+  loadConversations,
+  send,
+  regenerate,
+  stop,
+} = useChat();
+
+const canRegenerate = computed(
+  () => messages.value.some((m) => m.role === "assistant") && !isStreaming.value
+);
+
+onMounted(loadConversations);
+</script>

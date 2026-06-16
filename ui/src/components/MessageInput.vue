@@ -1,33 +1,3 @@
-<script setup lang="ts">
-import { ref } from "vue";
-
-const props = defineProps<{
-  isStreaming?: boolean;
-}>();
-
-const emit = defineEmits<{
-  send: [text: string];
-  stop: [];
-}>();
-
-const text = ref("");
-
-const submit = () => {
-  if (props.isStreaming) return;
-  const v = text.value.trim();
-  if (!v) return;
-  emit("send", v);
-  text.value = "";
-};
-
-const onKeydown = (e: KeyboardEvent) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    submit();
-  }
-};
-</script>
-
 <template>
   <div class="border-t border-base-300 bg-base-100 px-5 pb-5 pt-3">
     <div class="max-w-3xl mx-auto flex flex-col gap-2">
@@ -57,3 +27,33 @@ const onKeydown = (e: KeyboardEvent) => {
     </div>
   </div>
 </template>
+
+<script setup lang="ts">
+import { ref } from "vue";
+
+const props = defineProps<{
+  isStreaming?: boolean;
+}>();
+
+const emit = defineEmits<{
+  send: [text: string];
+  stop: [];
+}>();
+
+const text = ref("");
+
+const submit = () => {
+  if (props.isStreaming) return;
+  const v = text.value.trim();
+  if (!v) return;
+  emit("send", v);
+  text.value = "";
+};
+
+const onKeydown = (e: KeyboardEvent) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    submit();
+  }
+};
+</script>
