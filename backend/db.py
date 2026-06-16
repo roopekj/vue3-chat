@@ -5,6 +5,7 @@ Each helper manages its own short-lived session. This matters for streaming:
 we never hold a DB session open across the (potentially long) generation.
 """
 
+import json
 import uuid
 from datetime import datetime
 
@@ -206,6 +207,38 @@ async def get_lc_history(conv_id: str) -> list[dict]:
     for m in rows:
         if m["role"] == "user":
             msgs.append({"role": "user", "content": m["content"]})
-        elif m["role"] == "assistant" and m["content"].strip():
-            msgs.append({"role": "assistant", "content": m["content"]})
+        elif m["role"] == "assistant":
+            extra = m["extra"] or {}
+            # Only replay tool steps that completed, so every tool_call in the
+            # assistant message is matched by a tool result (the API requires it).
+            tools = [
+                t for t in (extra.get("tools") or []) if t.get("result") is not None
+            ]
+            content = m["content"] or None
+            if content is None and not tools:
+                continue
+            assistant: dict = {"role": "assistant", "content": content}
+            if extra.get("thinking"):
+                assistant["reasoning_content"] = extra["thinking"]
+            if tools:
+                assistant["tool_calls"] = [
+                    {
+                        "id": t["id"],
+                        "type": "function",
+                        "function": {
+                            "name": t["name"],
+                            "arguments": json.dumps(t.get("args") or {}),
+                        },
+                    }
+                    for t in tools
+                ]
+            msgs.append(assistant)
+            for t in tools:
+                msgs.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": t["id"],
+                        "content": str(t["result"]),
+                    }
+                )
     return msgs
